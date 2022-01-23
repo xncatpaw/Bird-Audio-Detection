@@ -12,6 +12,7 @@ import torchaudio
 class AudioDataset(Dataset):
     
     def __init__(self, label_df, audio_dir, transforms, target_sample_rate, num_sample, device, is_train_or_valid=True):
+        super().__init__()
         self.label_df = label_df
         self.audio_dir = audio_dir
         self.device = device
