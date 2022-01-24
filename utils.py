@@ -126,7 +126,7 @@ def train(net, train_iter, test_iter, device,
     loss = nn.CrossEntropyLoss(reduction='none')
     plotter = Custom_Plot(xlim=[0, num_epochs], xlabel='epoch', legends=['train_loss', 'train_acc', 'test_acc'])
     timer, num_batches = Timer(), len(train_iter)
-    curr_time = datetime.now().strftime('%Y-%b-%d-%H:%m')
+    curr_time = datetime.now().strftime('%Y-%b-%d-%Hh%m')
     
     for epoch in range(num_epochs):
         metric = Accumulator(3)
@@ -159,8 +159,6 @@ def train(net, train_iter, test_iter, device,
             plotter.plot()
         print(f'epoch {epoch} trained, train_loss: {train_l:.3f}, train_accuracy: {train_acc:.3f}, test_accuracy: {test_acc:.3f}')
         scheduler.step()
-    # print(f'loss {train_l:.3f}, train acc {train_acc:.3f}, '
-    #       f'test acc {test_acc:.3f}')
     print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec '
           f'on {str(device)}')
     
