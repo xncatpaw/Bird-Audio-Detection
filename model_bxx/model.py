@@ -36,16 +36,15 @@ class Model(nn.Module, abc.ABC):
         return u.cpu().numpy()
     
     
-    def fit(self, dataset=None, tqdm=None,
-            lr = 0.1, lr_lambda=None, batch_size=2400, num_epoch=50, verbose=False, **kwargs):
+    def fit(self, data_train, data_test, tqdm=None,
+            lr = 1e-4, lr_lambda=None, weight_decay=1e-4, num_epoch=50, verbose=False, **kwargs):
         '''
         Params:
-            - dataset : AudioDataset type.
+            - data_train/data_test : Dataloader type.
             - lr_lambda : float, used to decrease the learning rate. 
-            - batch_size : int, default is 2400.
             - num_epoch : int, default is 50.
         '''
-        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
         if lr_lambda is None:
             lr_lambda = lambda epoch : 0.95 if epoch%10==0 else 1
         lr_scheduler = torch.optim.lr_scheduler.MultiplicativeLR(optimizer, lr_lambda=lr_lambda)
@@ -71,35 +70,49 @@ class Model(nn.Module, abc.ABC):
             #     df_tmp = df_train.iloc[j:k]
             #     X = file_loader(df_tmp['itemid'])
             #     y = torch.tensor(df_tmp['hasbird'].to_numpy()).to(self.device).long()
-            for X, y in dataset:
+            self.train()
+            it_train = data_train
+            if tqdm is not None:
+                it_train = tqdm(it_train, leave=False)
+            for X, y in it_train:
+                optimizer.zero_grad()
                 if not isinstance(y, torch.Tensor):
                     y = torch.tensor(y)
-                y.to(self.device).long()
+                y = y.to(self.device).long()
                 y_prd = self(X)
                 loss = loss_func(y_prd, y)
                 loss.backward()
                 optimizer.step()
                 
+                train_loss = loss.detach().cpu().numpy()
+                it_train.set_postfix({'crt train loss': train_loss})
+                # del X
+                # del y
                 # print(j)
                 
             lr_scheduler.step()
             
             with torch.no_grad():
-                train_loss_list.append(loss.detach().cpu().numpy())
-                X = file_loader(df_test['itemid'])
-                y = torch.tensor(df_test['hasbird'].to_numpy()).to(self.device).long()
-                y_prd = self(X)
-                test_loss = loss_func(y_prd, y).cpu().numpy()
-                test_loss_list.append(test_loss)
-            it_epoch.set_postfix({'test loss': test_loss, 'train loss': loss.cpu().detach().numpy()})
+                train_loss = loss.detach().cpu().numpy()
+                train_loss_list.append(train_loss)
                 
-        fig, axs = plt.subplots(2)
-        axs[0].plot(np.arange(1, num_epoch+1), test_loss_list, color='r', label='test loss')
-        axs[0].set_xlim(left=1, right=num_epoch+2)
-        axs[0].legend()
-        axs[0].grid()
-        axs[1].plot(np.arange(1, num_epoch+1), train_loss_list, color='b', label='train loss')
-        axs[1].set_xlim(left=1, right=num_epoch+2)
-        axs[1].legend()
-        axs[1].grid()
+                _tmp_test_loss = []
+                for X, y in data_test:
+                    if not isinstance(y, torch.Tensor):
+                        y = torch.tensor(y)
+                    y = y.to(self.device).long()
+                    y_prd = self(X)
+                    loss = loss_func(y_prd, y)
+                    _tmp_test_loss.append(loss.cpu().numpy())
+                
+                test_loss = np.mean(_tmp_test_loss)
+                test_loss_list.append(test_loss)
+            it_epoch.set_postfix({'test loss': test_loss, 'train loss': train_loss})
+                
+        fig, axs = plt.subplots()
+        axs.plot(np.arange(1, num_epoch+1), test_loss_list, color='r', label='test loss')
+        axs.plot(np.arange(1, num_epoch+1), train_loss_list, color='b', label='train loss')
+        axs.set_xlim(left=1, right=num_epoch+2)
+        axs.legend()
+        axs.grid()
         plt.show()
