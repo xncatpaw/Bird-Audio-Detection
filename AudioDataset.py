@@ -1,6 +1,4 @@
 import os
-import shutil
-import math
 from itertools import accumulate
 from collections import Counter
 import pandas as pd
@@ -11,7 +9,7 @@ import torchaudio
 
 class AudioDataset(Dataset):
     
-    def __init__(self, label_df, audio_dir, transforms, target_sample_rate, num_sample, device, is_train_or_valid=True):
+    def __init__(self, label_df, audio_dir, transforms, target_sample_rate, length, device, is_train_or_valid=True):
         super().__init__()
         self.label_df = label_df
         self.audio_dir = audio_dir
@@ -21,7 +19,8 @@ class AudioDataset(Dataset):
         else:
             self.transforms = transforms.to(self.device)
         self.target_sample_rate = target_sample_rate
-        self.num_sample = num_sample
+        self.length = length
+        self.num_sample = self.target_sample_rate * self.length
         self.is_train_or_valid = is_train_or_valid
         
     def __len__(self):
@@ -52,7 +51,7 @@ class AudioDataset(Dataset):
     
     def _resample(self, signal, sample_rate):
         if sample_rate != self.target_sample_rate:
-            resampler = torchaudio.transforms.Resample(self.target_sample_rate)
+            resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=self.target_sample_rate).to(self.device)
             signal = resampler(signal)
         return signal
     
