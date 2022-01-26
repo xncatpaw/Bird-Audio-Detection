@@ -1,6 +1,5 @@
 import os
 import time
-import math
 from itertools import accumulate
 from IPython import display
 from datetime import datetime
@@ -110,13 +109,15 @@ def train(net, train_iter, test_iter, device,
           num_epochs=10, lr=1e-4, wd=1e-4, lr_period=2, lr_decay=0.9,
           model_name='nn',
           save_param=True, param_path=None,
-          plot=True, save_fig=True, fig_path=None):
+          plot=True, save_fig=True, fig_path=None,
+          initialize = False):
     
     def init_weights(m):
         if type(m) == nn.Linear or type(m) == nn.Conv2d:
             nn.init.xavier_uniform_(m.weight)
-    net.apply(init_weights)
-    
+    if initialize:
+        net.apply(init_weights)
+
     print('training on', device)
     net.to(device)
     
@@ -153,7 +154,7 @@ def train(net, train_iter, test_iter, device,
         test_acc = evaluate_accuracy_gpu(net, test_iter)
         plotter.add(epoch + 1, (None, None, test_acc))
         if save_fig and epoch == num_epochs - 1:
-            filename = model_name + curr_time + '.svg'
+            filename = model_name + '_' + curr_time + '.svg'
             plotter.plot(save=True, name=filename, path=fig_path)
         elif plot:
             plotter.plot()
