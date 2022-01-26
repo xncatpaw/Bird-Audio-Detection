@@ -36,14 +36,36 @@ class Model(nn.Module, abc.ABC):
         return u.cpu().numpy()
     
     
-    def fit(self, data_train, data_test, tqdm=None,
+    def fit(self, data_train, data_test, data_unlabel=None, tqdm=None,
             lr = 1e-4, lr_lambda=None, weight_decay=1e-4, num_epoch=50, verbose=False, **kwargs):
         '''
         Params:
             - data_train/data_test : Dataloader type.
             - lr_lambda : float, used to decrease the learning rate. 
             - num_epoch : int, default is 50.
+            - pseudo : bool, default is False. Indicating whether use the pseudo-label method.
+            - n_batch_train : int, default is 40. The number of pseudo-training batches before one epoch of real data training. 
+            - alpha_weight : func : int -> float. Indicating pseudo-training weight at eath step.
         '''
+        # Parse args.
+        pseudo = False
+        if 'pseudo' in kwargs and kwargs['pseudo']:
+            pseudo = True
+            assert data_unlabel is not None
+            N_BATCH_TRAIN = kwargs['n_batch_train'] if 'n_batch_train' in kwargs else 40
+            
+            if 'alpha_weight' in kwargs:
+                alpha_weight = kwargs['alpha_weight']
+            else:
+                T2 = num_epoch / 2 * len(data_unlabel) / N_BATCH_TRAIN
+                def alpha_weight(step):
+                    if step <= T2:
+                        return step/T2 * 0.5
+                    else:
+                        return 0.5
+            
+            
+        
         optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
         if lr_lambda is None:
             lr_lambda = lambda epoch : 0.95 if epoch%10==0 else 1
@@ -52,48 +74,86 @@ class Model(nn.Module, abc.ABC):
         test_loss_list = []
         train_loss_list = []
         
-        # # Separate train data from test data.
-        # num_totl = len(df_data)
-        # idx_tr = np.random.rand(num_totl) <= 0.8
-        # df_train = df_data[idx_tr]
-        # df_test = df_data[~idx_tr]
-        # num_tr = len(df_train)
         
         it_epoch = range(num_epoch)
         if tqdm is not None:
             it_epoch = tqdm(it_epoch)
         
         for epoch in it_epoch:
-            # for j in range(0, num_tr, batch_size):
-            #     self.zero_grad()
-            #     k = j+batch_size if j+batch_size<num_tr else num_tr
-            #     df_tmp = df_train.iloc[j:k]
-            #     X = file_loader(df_tmp['itemid'])
-            #     y = torch.tensor(df_tmp['hasbird'].to_numpy()).to(self.device).long()
-            self.train()
-            it_train = data_train
-            if tqdm is not None:
-                it_train = tqdm(it_train, leave=False)
-            for X, y in it_train:
-                optimizer.zero_grad()
-                if not isinstance(y, torch.Tensor):
-                    y = torch.tensor(y)
-                y = y.to(self.device).long()
-                y_prd = self(X)
-                loss = loss_func(y_prd, y)
-                loss.backward()
-                optimizer.step()
+            _tmp_lst_tr = []
+            if not pseudo: # In case where the pseudo label is not used.
+                self.train()
+                it_train = data_train
+                if tqdm is not None:
+                    it_train = tqdm(it_train, leave=False)
+                for X, y in it_train:
+                    optimizer.zero_grad()
+                    if not isinstance(y, torch.Tensor):
+                        y = torch.tensor(y)
+                    y = y.to(self.device).long()
+                    y_prd = self(X)
+                    loss = loss_func(y_prd, y)
+                    loss.backward()
+                    optimizer.step()
+
+                    train_loss = loss.detach().cpu().numpy()
+                    it_train.set_postfix({'crt train loss': train_loss})
+                    _tmp_lst_tr.append(train_loss)
+                    
+            else: # In case where we use the pseudo label.
+                step = 1
+                it_unlabel = enumerate(data_unlabel)
+                if tqdm is not None: 
+                    it_unlabel = tqdm(it_unlabel, leave=False, total=len(data_unlabel))
+                for batch_idx, X_unlabel in it_unlabel:
+                    self.eval()
+                    y_unlabel = self(X_unlabel)
+                    _, pseudo_label = torch.max(y_unlabel, 1)
+                    del y_unlabel
+                    
+                    self.train()   
+                    y_prd = self(X_unlabel)
+                    unlabel_loss = alpha_weight(step) * loss_func(y_prd, pseudo_label)
+                    optimizer.zero_grad()
+                    unlabel_loss.backward()
+                    optimizer.step()
+                    crt_ulbl_loss = unlabel_loss.detach().cpu().numpy()/alpha_weight(step)
+                    it_unlabel.set_postfix({'crt unlabel loss': crt_ulbl_loss})
+                    
+                    del X_unlabel
+                    del pseudo_label
+                    del y_prd
+                    
+                    if batch_idx % N_BATCH_TRAIN == 0: # Train with the labeled data.
+                        it_train = data_train
+                        if tqdm is not None:
+                            it_train = tqdm(it_train, leave=False)
+                        for X, y in it_train:
+                            optimizer.zero_grad()
+                            if not isinstance(y, torch.Tensor):
+                                y = torch.tensor(y)
+                            y = y.to(self.device).long()
+                            y_prd = self(X)
+                            loss = loss_func(y_prd, y)
+                            loss.backward()
+                            optimizer.step()
+
+                            train_loss = loss.detach().cpu().numpy()
+                            it_train.set_postfix({'crt train loss': train_loss})
+                            _tmp_lst_tr.append(train_loss)
+                            del X
+                            del y
+                            del y_prd
+
+                        # Now we increment step by 1
+                        step += 1
                 
-                train_loss = loss.detach().cpu().numpy()
-                it_train.set_postfix({'crt train loss': train_loss})
-                # del X
-                # del y
-                # print(j)
                 
             lr_scheduler.step()
             
+            self.eval()
             with torch.no_grad():
-                train_loss = loss.detach().cpu().numpy()
+                train_loss = np.mean(_tmp_lst_tr)
                 train_loss_list.append(train_loss)
                 
                 _tmp_test_loss = []
@@ -104,6 +164,9 @@ class Model(nn.Module, abc.ABC):
                     y_prd = self(X)
                     loss = loss_func(y_prd, y)
                     _tmp_test_loss.append(loss.cpu().numpy())
+                    del X
+                    del y
+                    del y_prd
                 
                 test_loss = np.mean(_tmp_test_loss)
                 test_loss_list.append(test_loss)
