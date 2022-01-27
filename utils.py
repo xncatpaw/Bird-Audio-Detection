@@ -1,5 +1,6 @@
 import os
 import time
+import numpy as np
 from itertools import accumulate
 from IPython import display
 from datetime import datetime
@@ -7,6 +8,34 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import scikitplot as skplt
+from sklearn.metrics import roc_curve, auc
+from matplotlib import pyplot as plt
+
+
+def roc_plot(model, data_test, ax=None):
+    '''
+    Function to plot the roc-curve of a model.
+    '''
+    lst_yp = []
+    lst_y = []
+    for X, y in tqdm(data_test):
+        yp = model.predict(X)
+        lst_yp.append(yp)
+        lst_y.append(y)
+
+    lst_yp = np.concatenate(lst_yp)
+    lst_y = np.concatenate(lst_y)
+    lst_yscore = np.exp(lst_yp) / (np.exp(lst_yp[:, 0])+np.exp(lst_yp[:, 1])).reshape(-1,1)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 7))
+        skplt.metrics.plot_roc(lst_y, lst_yscore, ax=ax)
+        plt.grid()
+        plt.show()
+    else:
+        skplt.metrics.plot_roc(lst_y, lst_yscore, ax=ax)
+
 
 class Accumulator:
     def __init__(self, n):
