@@ -2,13 +2,13 @@ import os
 import time
 import numpy as np
 from itertools import accumulate
-from IPython import display
+from IPython import display, Audio
 from datetime import datetime
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import tqdm
 import scikitplot as skplt
 from sklearn.metrics import roc_curve, auc
 from matplotlib import pyplot as plt
@@ -203,3 +203,57 @@ def train(net, train_iter, test_iter, device,
             'loss': loss,
         },
             os.path.join(param_path, filename))
+
+def plot_waveform(waveform, sample_rate, title="Waveform", xlim=None, ylim=None):
+    waveform = waveform.numpy()
+
+    num_channels, num_frames = waveform.shape
+    time_axis = torch.arange(0, num_frames) / sample_rate
+
+    figure, axes = plt.subplots(num_channels, 1, figsize=(8,7))
+    if num_channels == 1:
+        axes = [axes]
+    for c in range(num_channels):
+        axes[c].plot(time_axis, waveform[c], linewidth=1)
+        axes[c].grid(True)
+        if num_channels > 1:
+            axes[c].set_ylabel(f'Channel {c+1}')
+        if xlim:
+            axes[c].set_xlim(xlim)
+        if ylim:
+            axes[c].set_ylim(ylim)
+        axes[c].set_xlabel('time')
+        axes[c].set_ylabel('air pressure')
+    figure.suptitle(title)
+    plt.show(block=False)
+
+def plot_specgram(waveform, sample_rate, title="Spectrogram", xlim=None):
+    waveform = waveform.numpy()
+
+    num_channels, num_frames = waveform.shape
+    time_axis = torch.arange(0, num_frames) / sample_rate
+
+    figure, axes = plt.subplots(num_channels, 1, figsize=(8,7))
+    if num_channels == 1:
+        axes = [axes]
+    for c in range(num_channels):
+        axes[c].specgram(waveform[c], Fs=sample_rate)
+        if num_channels > 1:
+            axes[c].set_ylabel(f'Channel {c+1}')
+        if xlim:
+            axes[c].set_xlim(xlim)
+        axes[c].set_xlabel('time')
+        axes[c].set_ylabel('frequency')
+    figure.suptitle(title)
+    plt.show(block=False)
+
+def play_audio(waveform, sample_rate):
+    waveform = waveform.numpy()
+
+    num_channels, num_frames = waveform.shape
+    if num_channels == 1:
+        display(Audio(waveform[0], rate=sample_rate))
+    elif num_channels == 2:
+        display(Audio((waveform[0], waveform[1]), rate=sample_rate))
+    else:
+        raise ValueError("Waveform with more than 2 channels are not supported.")
